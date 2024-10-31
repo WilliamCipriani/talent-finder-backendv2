@@ -59,4 +59,4 @@ jobs:
           app-name: 'apiTalendfinderv2'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_9CA39DB96E5744BF9676796FEFC2D3C9 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_3A1AD89753F3451586D35235979F7C95 }}
