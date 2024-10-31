@@ -1,0 +1,28 @@
+# Dependencias de Node.js
+node_modules/
+
+# Variables de entorno
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Directorio de salida (para construir proyectos, como con Babel o TypeScript)
+dist/
+build/
+
+# Sistema operativo y editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Carpetas de test coverage (si usas herramientas de cobertura de pruebas)
+coverage/
+
+# Archivos de configuración de paquetes
+package-lock.json
+yarn.lock
