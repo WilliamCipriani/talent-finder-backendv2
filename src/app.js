@@ -6,8 +6,8 @@ require('dotenv').config();
 const app = express();
 
 app.use(cors({
-  //origin: 'https://www.trabajosaqui.net.pe', // Permitir solicitudes desde este origen
-  origin: 'http://localhost:3000',
+  origin: 'https://www.trabajosaqui.net.pe', // Permitir solicitudes desde este origen
+  //origin: 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'api_key'],
