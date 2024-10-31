@@ -1,12 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const { poolPromise } = require('./config/db');
 require('dotenv').config();
 
 const app = express();
 
 app.use(cors({
-  origin: 'https://www.trabajosaqui.net.pe', // Permitir solicitudes desde este origen
-  //origin: 'http://localhost:3000',
+  //origin: 'https://www.trabajosaqui.net.pe', // Permitir solicitudes desde este origen
+  origin: 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'api_key'],
@@ -36,5 +37,18 @@ app.use('/users', userRoutes);
 app.get('/', (req, res) => {
   res.send('Servidor Express funcionando correctamente');
 });
+
+app.get('/status', async (req, res) => {
+    try {
+      const pool = await poolPromise; // Espera la conexión al pool
+      if (pool.connected) {
+        res.send('Conexión a la base de datos establecida correctamente.');
+      } else {
+        res.status(500).send('No se pudo establecer la conexión a la base de datos.');
+      }
+    } catch (error) {
+      res.status(500).send('Error al conectar con la base de datos: ' + error.message);
+    }
+  });
 
 module.exports = app;
