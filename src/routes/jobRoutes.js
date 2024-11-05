@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer'); // Importar multer
 const jwt = require('jsonwebtoken');
-const { getAllJobs, getJobById, createJob, addResponsibility, addQualification, addBenefit, getApplications  } = require('../models/jobModel');
+const { deleteJob, getAllJobs, getJobById, createJob, addResponsibility, addQualification, addBenefit, getApplications,updateJob  } = require('../models/jobModel');
 const authenticate = require('../middleware/auth');
 
 const router = express.Router();
@@ -12,7 +12,20 @@ const upload = multer({ storage: storage });
 // Crear una convocatoria de empleo
 router.post('/create-job', authenticate, upload.single('company_image'), async (req, res) => {
   try {
-    const { company, type, title, location, salaryRange, description, daysPosted, responsibilities, qualifications, benefits } = req.body;
+    console.log(req.body);
+    const {
+      company,
+      type,
+      title,
+      location,
+      salaryRange,
+      description,
+      daysPosted,
+      responsibilities,
+      qualifications,
+      benefits
+    } = req.body;
+    
     const role = req.user.role_id;
 
     if (role !== 2) {
@@ -21,17 +34,38 @@ router.post('/create-job', authenticate, upload.single('company_image'), async (
 
     const company_image = req.file ? req.file.buffer : null; // Obtener el buffer de la imagen cargada
 
-    const jobId = await createJob(company, type, title, location, salaryRange, description, daysPosted, company_image);
+    // Parsear responsibilities, qualifications y benefits como arrays
+    const responsibilitiesArray = JSON.parse(responsibilities);
+    const qualificationsArray = JSON.parse(qualifications);
+    const benefitsArray = JSON.parse(benefits);
 
-    for (const responsibility of responsibilities) {
+    const jobData = {
+      company,
+      type,
+      title,
+      location,
+      salaryRange,
+      description,
+      daysPosted: parseInt(daysPosted, 10), // Asegura que daysPosted sea un entero
+      company_image,
+      responsibilitiesArray,
+      qualificationsArray,
+      benefitsArray
+    };
+
+
+    const jobId = await createJob(jobData);
+
+    // Agregar responsabilidades, calificaciones y beneficios
+    for (const responsibility of responsibilitiesArray) {
       await addResponsibility(jobId, responsibility);
     }
 
-    for (const qualification of qualifications) {
+    for (const qualification of qualificationsArray) {
       await addQualification(jobId, qualification);
     }
 
-    for (const benefit of benefits) {
+    for (const benefit of benefitsArray) {
       await addBenefit(jobId, benefit);
     }
 
@@ -42,6 +76,36 @@ router.post('/create-job', authenticate, upload.single('company_image'), async (
   }
 });
 
+router.delete('/delete-job/:id', authenticate, async (req, res) => {
+  try {
+    const jobId = req.params.id;
+    const role = req.user.role_id;
+
+    // Verificar si el usuario tiene permisos para eliminar el trabajo
+    if (role !== 2) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
+    // Llamar a la función deleteJob en el modelo
+    const result = await deleteJob(jobId);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    res.status(500).json({ error: 'Error deleting job' });
+  }
+});
+
+router.put('/update-job/:id', async (req, res) => {
+  try {
+    const jobId = req.params.id;
+    const jobData = req.body;
+    const result = await updateJob(jobId, jobData);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).json({ error: 'Error updating job' });
+  }
+});
 
 // Postular a un trabajo
 router.post('/apply-job', authenticate, async (req, res) => {

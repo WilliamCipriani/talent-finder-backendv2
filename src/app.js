@@ -5,13 +5,20 @@ require('dotenv').config();
 
 const app = express();
 
+const allowedOrigins = ['https://www.trabajosaqui.net.pe', 'http://localhost:3000'];
+
 app.use(cors({
-  origin: 'https://www.trabajosaqui.net.pe', // Permitir solicitudes desde este origen
-  //origin: 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'api_key'],
-}));
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('No permitido por CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'api_key'],
+  }));
 
 app.use(express.json());// Middleware para parsear JSON
 

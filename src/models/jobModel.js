@@ -1,7 +1,18 @@
 const { poolPromise } = require('../config/db');
 const sql = require('mssql');
 
-const createJob = async (company, type, title, location, salaryRange, description, daysPosted, company_image) => {
+const createJob = async (jobData) => {
+  console.log("Received jobData:", jobData); // Verifica que todos los datos estén presentes
+  const { company, type, title, location, salaryRange, description, daysPosted, company_image, responsibilitiesArray, qualificationsArray, benefitsArray } = jobData;
+
+  if (!company || !type || !title || !location || !salaryRange) {
+    throw new Error("Campos obligatorios no pueden estar vacíos");
+  }
+
+  console.log('Inserting job with data:', {
+    company, type, title, location, salaryRange, description, daysPosted, company_image
+  });
+
   try {
     const pool = await poolPromise;
     const result = await pool.request()
@@ -11,62 +22,96 @@ const createJob = async (company, type, title, location, salaryRange, descriptio
       .input('location', sql.VarChar, location)
       .input('salaryRange', sql.VarChar, salaryRange)
       .input('description', sql.VarChar, description)
-      .input('daysPosted', sql.Int, daysPosted)
-      .input('company_image', sql.VarBinary, company_image) // Asegúrate de agregar este campo
+      .input('daysPosted', sql.Int, parseInt(daysPosted, 10)) // Asegura que daysPosted es entero
+      .input('company_image', sql.VarBinary, company_image || null) // Maneja company_image como Buffer o null
       .query(`
         INSERT INTO Jobs (company, type, title, location, salaryRange, description, daysPosted, company_image, created_at)
         OUTPUT INSERTED.id
         VALUES (@company, @type, @title, @location, @salaryRange, @description, @daysPosted, @company_image, GETDATE())
       `);
-    return result.recordset[0].id;
+
+    const jobId = result.recordset[0].id;
+
+    for (const responsibility of responsibilitiesArray) {
+      await addResponsibility(jobId, responsibility);
+    }
+    for (const qualification of qualificationsArray) {
+      await addQualification(jobId, qualification);
+    }
+    for (const benefit of benefitsArray) {
+      await addBenefit(jobId, benefit);
+    }
+
+    return jobId;
   } catch (error) {
     console.error('Error creating job:', error);
     throw new Error('Error creating job');
   }
 };
 
-
 // Función para obtener todos los trabajos
 const getAllJobs = async () => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-       SELECT 
-    j.id,
-    j.title,
-    j.company,
-    j.type,
-    j.location,
-    j.salaryRange,
-    j.description,
-    j.company_image,
-    q.qualification,
-    b.benefit,
-    r.responsibility
-FROM Jobs j
-LEFT JOIN Qualifications q ON j.id = q.job_id
-LEFT JOIN Benefits b ON j.id = b.job_id
-LEFT JOIN Responsibilities r ON j.id = r.job_id
-ORDER BY j.created_at DESC
-OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY;
+      SELECT 
+        j.id,
+        j.title,
+        j.company,
+        j.type,
+        j.location,
+        j.salaryRange,
+        j.description,
+        j.company_image,
+        q.qualification,
+        b.benefit,
+        r.responsibility
+      FROM Jobs j
+      LEFT JOIN Qualifications q ON j.id = q.job_id
+      LEFT JOIN Benefits b ON j.id = b.job_id
+      LEFT JOIN Responsibilities r ON j.id = r.job_id
+      ORDER BY j.created_at DESC;
     `);
 
-    // Convertir la imagen de binario a base64 para cada trabajo y agrupar calificaciones, beneficios y responsabilidades
-    const jobsWithDetails = result.recordset.map(job => {
-      // Convertir la imagen a base64
-      if (job.company_image) {
-        job.companyImage = Buffer.from(job.company_image).toString('base64');
-      } else {
-        job.companyImage = null;
+    // Utilizar un mapa para agrupar los datos de cada trabajo
+    const jobsMap = new Map();
+
+    result.recordset.forEach(row => {
+      const jobId = row.id;
+
+      // Si el trabajo no existe en el mapa, inicializarlo
+      if (!jobsMap.has(jobId)) {
+        jobsMap.set(jobId, {
+          id: row.id,
+          title: row.title,
+          company: row.company,
+          type: row.type,
+          location: row.location,
+          salaryRange: row.salaryRange,
+          description: row.description,
+          companyImage: row.company_image ? Buffer.from(row.company_image).toString('base64') : null,
+          qualifications: new Set(),
+          benefits: new Set(),
+          responsibilities: new Set(),
+        });
       }
 
-      // Agrupar calificaciones, beneficios y responsabilidades si están disponibles
-      job.qualifications = job.qualification || ''; // Asegúrate de agregar lógica adecuada si hay múltiples valores
-      job.benefits = job.benefit || '';
-      job.responsibilities = job.responsibility || '';
+      // Obtener el trabajo del mapa
+      const job = jobsMap.get(jobId);
 
-      return job;
+      // Agregar elementos únicos a cada propiedad de set
+      if (row.qualification) job.qualifications.add(row.qualification);
+      if (row.benefit) job.benefits.add(row.benefit);
+      if (row.responsibility) job.responsibilities.add(row.responsibility);
     });
+
+    // Convertir sets a arrays y construir el array de trabajos
+    const jobsWithDetails = Array.from(jobsMap.values()).map(job => ({
+      ...job,
+      qualifications: Array.from(job.qualifications),
+      benefits: Array.from(job.benefits),
+      responsibilities: Array.from(job.responsibilities),
+    }));
 
     return jobsWithDetails;
   } catch (err) {
@@ -74,7 +119,6 @@ OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY;
     throw new Error('Error fetching jobs');
   }
 };
-
 
 // Función para obtener los detalles de un trabajo específico
 const getJobById = async (jobId) => {
@@ -179,6 +223,92 @@ const getApplications = async () => {
   }
 };
 
+const deleteJob = async (jobId) => {
+  try {
+    const pool = await poolPromise;
+    await pool.request()
+      .input('job_id', sql.Int, jobId)
+      .query(`
+        DELETE FROM Responsibilities WHERE job_id = @job_id;
+        DELETE FROM Qualifications WHERE job_id = @job_id;
+        DELETE FROM Benefits WHERE job_id = @job_id;
+        DELETE FROM Jobs WHERE id = @job_id;
+      `);
+
+    return { message: 'Trabajo eliminado exitosamente' };
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    throw new Error('Error deleting job');
+  }
+};
+
+const updateJob = async (jobId, jobData) => {
+  const { company, type, title, location, salaryRange, description, daysPosted, responsibilitiesArray, qualificationsArray, benefitsArray, company_image } = jobData; 
+  console.log("Datos recibidos para actualizar el trabajo (Backend):", jobData);
+
+  
+
+  try {
+
+    if (!company || !type || !title || !location || !salaryRange || !description) {
+      throw new Error("Campos obligatorios no pueden estar vacíos"); // Genera un error si algún campo es nulo o vacío
+    }
+
+    const pool = await poolPromise;
+    // Actualizar el trabajo principal en la tabla `Jobs`
+    const result = await pool.request()
+      .input('job_id', sql.Int, jobId)
+      .input('company', sql.VarChar, company)
+      .input('type', sql.VarChar, type)
+      .input('title', sql.VarChar, title)
+      .input('location', sql.VarChar, location)
+      .input('salaryRange', sql.VarChar, salaryRange)
+      .input('description', sql.VarChar, description)
+      .input('daysPosted', sql.Int, parseInt(daysPosted, 10) || 0)
+      .input('company_image', sql.VarBinary, company_image ? Buffer.from(company_image) : sql.VarBinary(null))
+      .query(`
+        UPDATE Jobs
+        SET company = @company,
+            type = @type,
+            title = @title,
+            location = @location,
+            salaryRange = @salaryRange,
+            description = @description,
+            daysPosted = @daysPosted,
+            company_image = @company_image
+        WHERE id = @job_id
+      `);
+
+      console.log("Resultado de la actualización de la tabla principal:", result);
+
+    // Elimina las entradas antiguas de qualifications, responsibilities y benefits
+    await pool.request().input('job_id', sql.Int, jobId).query(`
+      DELETE FROM Responsibilities WHERE job_id = @job_id;
+      DELETE FROM Qualifications WHERE job_id = @job_id;
+      DELETE FROM Benefits WHERE job_id = @job_id;
+    `);
+
+    console.log("Registros antiguos eliminados de las tablas relacionadas");
+
+    // Re-inserta los nuevos valores
+   // Re-inserta los nuevos valores
+   for (const responsibility of responsibilitiesArray) {
+    await addResponsibility(jobId, responsibility);
+  }
+  for (const qualification of qualificationsArray) {
+    await addQualification(jobId, qualification);
+  }
+  for (const benefit of benefitsArray) {
+    await addBenefit(jobId, benefit);
+  }
+    
+  console.log("Datos relacionados actualizados correctamente");
+    return { message: 'Trabajo actualizado exitosamente' };
+  } catch (error) {
+    console.error('Error updating job:', error);
+    throw new Error('Error updating job');
+  }
+};
 
 module.exports = {
   createJob,
@@ -187,5 +317,7 @@ module.exports = {
   addResponsibility,
   addQualification,
   addBenefit,
-  getApplications
+  getApplications,
+  deleteJob,
+  updateJob 
 };
